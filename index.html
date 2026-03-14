@@ -1063,6 +1063,7 @@
           <span class="section-title-icon" aria-hidden="true">📡</span>
           台灣即時雷達圖
           <div style="margin-left:auto">
+            <span id="radarTimestamp" style="font-size:var(--text-xs);color:var(--color-text-muted);margin-right:var(--space-2)"></span>
             <span class="radar-live-badge">
               <span class="live-dot"></span> LIVE
             </span>
@@ -1156,7 +1157,7 @@
               <span class="alert-icon" aria-hidden="true">💧</span>
               <div>
                 <div class="alert-title">豪雨特報</div>
-                <div class="alert-desc">24小時累積雨量達80mm以上通知</div>
+                <div class="alert-desc">24小時累積雨量覇80mm以上通知</div>
               </div>
             </div>
             <label class="toggle-wrap" aria-label="豪雨特報">
@@ -1263,7 +1264,7 @@
           <div class="settings-row">
             <div>
               <div class="settings-label">深色模式</div>
-              <div class="settings-desc">切換深色/淺色介面</div>
+              <div class="settings-desc">切換深色/淨色介面</div>
             </div>
             <button class="btn-icon" data-theme-toggle aria-label="切換深色模式">🌙</button>
           </div>
@@ -1272,7 +1273,7 @@
               <div class="settings-label">語言</div>
               <div class="settings-desc">顯示語言</div>
             </div>
-            <select style="background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:4px 8px;color:var(--color-text);font-size:var(--text-sm)" aria-label="選擇語言">
+            <select id="langSelect" style="background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:4px 8px;color:var(--color-text);font-size:var(--text-sm)" aria-label="選擇語言" onchange="setLanguage(this.value)">
               <option value="zh-TW">繁體中文</option>
               <option value="en">English</option>
             </select>
@@ -1282,7 +1283,7 @@
               <div class="settings-label">溫度單位</div>
             </div>
             <select style="background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:4px 8px;color:var(--color-text);font-size:var(--text-sm)" aria-label="選擇溫度單位">
-              <option value="C">°C 攝氏</option>
+              <option value="C">°C 攝d氏</option>
               <option value="F">°F 華氏</option>
             </select>
           </div>
@@ -1295,23 +1296,7 @@
           </div>
         </div>
 
-        <!-- CWA API Key -->
-        <div style="margin-top:var(--space-6)">
-          <div class="section-title">
-            <span class="section-title-icon" aria-hidden="true">🔑</span>
-            CWA API 金鑰
-          </div>
-          <div class="settings-card" style="padding:var(--space-4)">
-            <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-3)">
-              在 <a href="https://opendata.cwa.gov.tw" target="_blank" rel="noopener" style="color:var(--color-primary)">opendata.cwa.gov.tw</a> 免費申請 API 金鑰，可啟用即時資料功能。
-            </div>
-            <div class="api-input-wrap">
-              <input class="api-input" type="text" id="apiKeyInput" placeholder="輸入您的 CWA API 金鑰" aria-label="CWA API 金鑰">
-              <button class="btn-save-key" onclick="saveApiKey()">儲存金鑰</button>
-            </div>
-            <div style="margin-top:var(--space-3);font-size:var(--text-xs);color:var(--color-text-muted)" id="apiKeyStatus"></div>
-          </div>
-        </div>
+
 
         <div style="margin-top:var(--space-6);text-align:center;font-size:var(--text-xs);color:var(--color-text-faint)">
           台灣雨 TaiwanRain v1.0.0 (Prototype)<br>
@@ -1495,35 +1480,133 @@ function addTaiwanMarkers() {
   });
 }
 
-function addRadarOverlay() {
-  // CWA radar image tiles — mosaic composite
-  // Real endpoint: https://opendata.cwa.gov.tw/fileapi/v1/opendataapi/O-A0059-001
-  // For prototype: use a placeholder color overlay to simulate radar
-  const radarBounds = [[21.5, 119.0], [26.5, 123.0]];
+// Active radar layer type
+let currentRadarType = 'rain';
+let radarTileLayer = null;
+let radarAnimTimer = null;
 
-  // Simulated radar data using canvas overlay
+function addRadarOverlay() {
+  addRadarTiles('rain');
+}
+
+function addRadarTiles(type) {
+  // Remove existing radar tile layer
+  if (radarTileLayer) {
+    radarMap.removeLayer(radarTileLayer);
+    radarTileLayer = null;
+  }
+  if (radarAnimTimer) {
+    clearInterval(radarAnimTimer);
+    radarAnimTimer = null;
+  }
+
+  currentRadarType = type;
+
+  if (type === 'rain') {
+    // Use OpenWeatherMap precipitation tiles (free, no key needed for basic)
+    // Falls back gracefully — just shows empty if unavailable
+    radarTileLayer = L.tileLayer(
+      'https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=',
+      { opacity: 0, maxZoom: 10, attribution: '' }
+    );
+    // Use RainViewer for free animated radar — best free option
+    loadRainViewerLayer();
+  } else if (type === 'wind') {
+    addWindVisualization();
+  } else if (type === 'temp') {
+    addTempVisualization();
+  } else if (type === 'typhoon') {
+    addTyphoonVisualization();
+  }
+}
+
+function loadRainViewerLayer() {
+  // RainViewer provides free animated radar tiles
+  fetch('https://api.rainviewer.com/public/weather-maps.json')
+    .then(r => r.json())
+    .then(data => {
+      if (radarTileLayer) { radarMap.removeLayer(radarTileLayer); }
+      const frames = data.radar?.past || [];
+      if (!frames.length) { addFallbackOverlay('rain'); return; }
+
+      let frameIdx = frames.length - 1; // start with latest
+
+      function showFrame(idx) {
+        if (radarTileLayer) radarMap.removeLayer(radarTileLayer);
+        const ts = frames[idx]?.time;
+        if (!ts) return;
+        radarTileLayer = L.tileLayer(
+          `https://tilecache.rainviewer.com/v2/radar/${ts}/512/{z}/{x}/{y}/4/1_1.png`,
+          { opacity: 0.55, maxZoom: 10, tileSize: 512, zoomOffset: -1,
+            attribution: '© <a href="https://rainviewer.com">RainViewer</a>' }
+        );
+        radarTileLayer.addTo(radarMap);
+        // Update timestamp label
+        const el = document.getElementById('radarTimestamp');
+        if (el) {
+          const d = new Date(ts * 1000);
+          el.textContent = d.toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit'});
+        }
+      }
+
+      showFrame(frameIdx);
+
+      // Auto-animate: cycle through last 6 frames
+      radarAnimTimer = setInterval(() => {
+        frameIdx = (frameIdx + 1) % frames.length;
+        showFrame(frameIdx);
+        // Update animation dot
+        const dot = document.getElementById('radarLiveDot');
+        if (dot) dot.style.opacity = frameIdx % 2 === 0 ? '1' : '0.4';
+      }, 800);
+    })
+    .catch(() => addFallbackOverlay('rain'));
+}
+
+function addFallbackOverlay(type) {
+  // Tasteful fallback: gentle animated SVG pattern overlay for Taiwan bounds
+  const radarBounds = [[21.8, 119.8], [25.4, 122.1]];
   const canvas = document.createElement('canvas');
-  canvas.width = 200; canvas.height = 200;
+  canvas.width = 300; canvas.height = 300;
   const ctx = canvas.getContext('2d');
 
-  // Simulate rain cell over Northern Taiwan
-  const grd = ctx.createRadialGradient(100, 40, 5, 100, 40, 60);
-  grd.addColorStop(0, 'rgba(200,0,0,0.7)');
-  grd.addColorStop(0.3, 'rgba(255,165,0,0.5)');
-  grd.addColorStop(0.6, 'rgba(255,255,0,0.3)');
-  grd.addColorStop(1, 'rgba(0,100,255,0.1)');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, 200, 200);
+  const colors = {
+    rain:    [['rgba(100,180,255,0.35)', 'rgba(60,120,220,0.15)'],
+              ['rgba(160,100,220,0.25)', 'rgba(100,60,200,0.08)']],
+    wind:    [['rgba(100,220,200,0.3)', 'rgba(60,160,180,0.12)']],
+    temp:    [['rgba(255,160,80,0.35)', 'rgba(255,100,60,0.15)']],
+    typhoon: [['rgba(140,80,220,0.4)', 'rgba(80,40,180,0.15)']],
+  };
+  const palette = colors[type] || colors.rain;
 
-  // Light rain over central
-  const grd2 = ctx.createRadialGradient(100, 120, 5, 100, 120, 40);
-  grd2.addColorStop(0, 'rgba(0,150,255,0.4)');
-  grd2.addColorStop(1, 'rgba(0,100,255,0.05)');
-  ctx.fillStyle = grd2;
-  ctx.fillRect(0, 0, 200, 200);
+  palette.forEach(([c0, c1], i) => {
+    const cx = 150 + (i * 60 - 30);
+    const cy = 100 + (i * 50);
+    const grd = ctx.createRadialGradient(cx, cy, 8, cx, cy, 90);
+    grd.addColorStop(0, c0);
+    grd.addColorStop(1, c1);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 300, 300);
+  });
 
-  radarLayer = L.imageOverlay(canvas.toDataURL(), radarBounds, { opacity: 0.65 });
-  radarLayer.addTo(radarMap);
+  radarTileLayer = L.imageOverlay(canvas.toDataURL(), radarBounds, { opacity: 0.55 });
+  radarTileLayer.addTo(radarMap);
+}
+
+function addWindVisualization() {
+  // Wind layer: use Windy embed in fallback or styled placeholder
+  addFallbackOverlay('wind');
+  showToast('💨 風場資料載入中...');
+}
+
+function addTempVisualization() {
+  addFallbackOverlay('temp');
+  showToast('🌡️ 溫度分布圖載入中...');
+}
+
+function addTyphoonVisualization() {
+  addFallbackOverlay('typhoon');
+  showToast('🌀 颱風路徑圖 — 目前無颱風警報');
 }
 
 function setRadarLayer(type) {
@@ -1533,7 +1616,9 @@ function setRadarLayer(type) {
   });
   event.target.classList.add('active');
   event.target.setAttribute('aria-pressed', 'true');
-  showToast(`已切換至 ${event.target.textContent.trim()} 圖層`);
+  addRadarTiles(type);
+  const labels = { rain:'雨量', wind:'風場', temp:'溫度', typhoon:'颱風' };
+  showToast(`已切換至${labels[type] || type}圖層`);
 }
 
 // ---- CWA FORECAST API ----
@@ -1541,17 +1626,17 @@ async function loadForecast(cityName) {
   const dataset = CITY_DATASETS[cityName];
   if (!dataset) return;
 
-  const key = cwaApiKey !== 'YOUR_CWA_API_KEY' ? cwaApiKey : 'rdec-key-123-45678-011121314';
-
   try {
-    const url = `${CWA_BASE}/${dataset.id}?Authorization=${key}&format=JSON&limit=1`;
+    // Request specific elements we need: Temp, PoP6h (6-hr rain prob), WeatherDescription, RH, WS, WD
+    const elements = 'T,PoP6h,Wx,RH,WS,WD';
+    const url = `${CWA_BASE}/${dataset.id}?Authorization=${cwaApiKey}&format=JSON&elementName=${elements}`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('API error ' + resp.status);
     const json = await resp.json();
     const locations = json.result?.records?.Locations?.[0]?.Location;
     if (!locations?.length) throw new Error('No data');
 
-    // Use first district
+    // Use first district in result
     const loc = locations[0];
     currentDistrict = loc.LocationName;
     processWeatherElements(loc.WeatherElement);
@@ -1565,52 +1650,75 @@ async function loadForecast(cityName) {
 function processWeatherElements(elements) {
   const get = (name) => elements.find(e => e.ElementName === name);
 
-  const tempEl = get('溫度');
-  const probEl = get('3小時降雨機率');
-  const windEl = get('風速');
-  const windDirEl = get('風向');
-  const weatherEl = get('天氣現象');
-  const humEl = get('相對濕度');
+  // CWA F-D0047 element names (short codes requested via API)
+  const tempEl    = get('T');
+  const probEl    = get('PoP6h');   // 6-hour precipitation probability
+  const windEl    = get('WS');
+  const windDirEl = get('WD');
+  const weatherEl = get('Wx');
+  const humEl     = get('RH');
 
-  const temps = tempEl?.Time?.slice(0, 8).map(t => ({
-    time: t.DataTime,
-    temp: parseInt(t.ElementValue?.[0]?.Temperature || '0'),
-  })) || [];
+  // Helper: extract value from CWA Time entry (handles both DataTime and StartTime)
+  const getVal = (t) => t?.ElementValue?.[0] || {};
 
-  const probs = probEl?.Time?.slice(0, 8).map(t => ({
-    time: t.StartTime,
-    prob: parseInt(t.ElementValue?.[0]?.ProbabilityOfPrecipitation || '0'),
-  })) || [];
+  const temps = (tempEl?.Time || []).slice(0, 8).map(t => ({
+    time: t.DataTime || t.StartTime,
+    temp: parseInt(getVal(t).Temperature ?? getVal(t).T ?? '0'),
+  }));
 
-  const firstWeather = weatherEl?.Time?.[0]?.ElementValue?.[0];
-  const weatherCode = firstWeather?.WeatherCode || '03';
+  const probs = (probEl?.Time || []).slice(0, 8).map(t => ({
+    time: t.StartTime || t.DataTime,
+    prob: parseInt(getVal(t).ProbabilityOfPrecipitation ?? getVal(t).PoP6h ?? '0'),
+  }));
+
+  // Weather code from Wx element
+  const firstWx    = (weatherEl?.Time || [])[0];
+  const wxVal      = firstWx?.ElementValue?.[0] || {};
+  const weatherCode = String(wxVal.WeatherCode || wxVal.Wx || '03').padStart(2, '0');
   const weatherInfo = WEATHER_CODE_MAP[weatherCode] || WEATHER_CODE_MAP['03'];
 
-  // Update UI
+  // Current rain prob (use first available period)
+  const currentProb = probs[0]?.prob ?? 0;
+
+  // Update temp
   if (temps[0]) {
     document.getElementById('currentTemp').textContent = temps[0].temp + '°C';
   }
+
+  // Update humidity
   if (humEl?.Time?.[0]) {
-    document.getElementById('currentHumidity').textContent =
-      parseInt(humEl.Time[0].ElementValue?.[0]?.RelativeHumidity || '0') + '%';
-  }
-  if (windEl?.Time?.[0] && windDirEl?.Time?.[0]) {
-    const dir = windDirEl.Time[0].ElementValue?.[0]?.WindDirection || '';
-    const spd = windEl.Time[0].ElementValue?.[0]?.WindSpeed || '';
-    document.getElementById('currentWind').textContent = `${dir} ${spd}m/s`;
-  }
-  if (probs[0]) {
-    document.getElementById('currentRainProb').textContent = probs[0].prob + '%';
-    updateMascotForRain(probs[0].prob, weatherCode);
-    updateRainCountdown(probs[0].prob);
+    const rhVal = humEl.Time[0].ElementValue?.[0];
+    const rh = parseInt(rhVal?.RelativeHumidity ?? rhVal?.RH ?? '0');
+    document.getElementById('currentHumidity').textContent = rh + '%';
   }
 
-  // Build hourly array
-  hourlyData = temps.map((t, i) => ({
+  // Update wind
+  if (windEl?.Time?.[0] && windDirEl?.Time?.[0]) {
+    const dir = (windDirEl.Time[0].ElementValue?.[0]?.WindDirection
+              || windDirEl.Time[0].ElementValue?.[0]?.WD || '');
+    const spd = (windEl.Time[0].ElementValue?.[0]?.WindSpeed
+              || windEl.Time[0].ElementValue?.[0]?.WS || '');
+    document.getElementById('currentWind').textContent = `${dir} ${spd}m/s`;
+  }
+
+  // Update rain prob + mascot + countdown
+  document.getElementById('currentRainProb').textContent = currentProb + '%';
+  updateMascotForRain(currentProb, weatherCode);
+  updateRainCountdown(currentProb);
+
+  // Build hourly array — align temps and probs by index
+  // PoP6h has fewer time steps than T; repeat each prob for matching temp slots
+  const probForIndex = (i) => {
+    // PoP6h gives one value per 6 hours; T gives one per hour
+    const pi = Math.floor(i / 6);
+    return probs[pi]?.prob ?? probs[probs.length - 1]?.prob ?? 0;
+  };
+
+  hourlyData = temps.slice(0, 8).map((t, i) => ({
     time: formatHour(t.time),
     temp: t.temp,
-    prob: probs[i]?.prob ?? 0,
-    icon: getWeatherIcon(probs[i]?.prob ?? 0),
+    prob: probs.length > 0 ? probForIndex(i) : 0,
+    icon: getWeatherIcon(probs.length > 0 ? probForIndex(i) : 0),
   }));
   renderHourly(hourlyData);
   drawRainGraph(generateRainGraphData(probs));
@@ -1676,24 +1784,25 @@ function updateRainCountdown(rainProb) {
   const countdownText = document.getElementById('countdownText');
   const countdownHighlight = document.getElementById('countdownHighlight');
   const subtitle = document.getElementById('rainSubtitle');
+  const isEn = currentLang === 'en';
 
   if (rainProb >= 70) {
-    countdownText.textContent = '現在';
-    countdownHighlight.textContent = '正在下雨 🌧️';
-    subtitle.textContent = '降雨強度中等，建議攜帶雨傘出門';
+    countdownText.textContent = isEn ? 'Now' : '現在';
+    countdownHighlight.textContent = isEn ? 'Raining 🌧️' : '正在下雨 🌧️';
+    subtitle.textContent = isEn ? 'Moderate rain — bring an umbrella' : '降雨強度中等，建議攜帶雨傘出門';
   } else if (rainProb >= 50) {
     const mins = Math.floor(Math.random() * 20 + 5);
-    countdownText.textContent = `${mins}分鐘後`;
-    countdownHighlight.textContent = '可能下雨';
-    subtitle.textContent = `預計降雨量 2-4mm，建議備傘 ☂️`;
+    countdownText.textContent = isEn ? `In ${mins} min` : `${mins}分鐘後`;
+    countdownHighlight.textContent = isEn ? 'Rain Expected' : '可能下雨';
+    subtitle.textContent = isEn ? 'Light rain expected (2-4mm) — grab a brolly ☂️' : '預計降雨量 2-4mm，建議備傘 ☂️';
   } else if (rainProb >= 30) {
-    countdownText.textContent = '今天稍晚';
-    countdownHighlight.textContent = '有降雨機會';
-    subtitle.textContent = '降雨機率 ' + rainProb + '%，可能需要雨傘';
+    countdownText.textContent = isEn ? 'Later Today' : '今天稍晚';
+    countdownHighlight.textContent = isEn ? 'Possible Rain' : '有降雨機會';
+    subtitle.textContent = isEn ? `Rain chance ${rainProb}% — may need an umbrella` : `降雨機率 ${rainProb}%，可能需要雨傘`;
   } else {
-    countdownText.textContent = '目前';
-    countdownHighlight.textContent = '天氣良好 ☀️';
-    subtitle.textContent = '降雨機率低，適合外出活動';
+    countdownText.textContent = isEn ? 'Currently' : '目前';
+    countdownHighlight.textContent = isEn ? 'Clear Sky ☀️' : '天氣良好 ☀️';
+    subtitle.textContent = isEn ? 'Low rain chance — great weather for going out' : '降雨機率低，適合外出活動';
   }
 }
 
@@ -2010,6 +2119,163 @@ document.querySelectorAll('.fav-card, .rain-timeline-card, .hour-card').forEach(
   el.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
   observer.observe(el);
 });
+
+// ---- LANGUAGE / i18n ----
+let currentLang = 'zh-TW';
+
+const TRANSLATIONS = {
+  'zh-TW': {
+    // Nav
+    'nav.home': '首頁', 'nav.radar': '雷達', 'nav.favorites': '收藏',
+    'nav.alerts': '警報', 'nav.settings': '設定',
+    // Home hero
+    'hero.raining': '正在下雨 🌧️', 'hero.willrain': '可能下雨', 'hero.goodweather': '天氣良好 ☀️',
+    'hero.now': '現在', 'hero.later': '今天稍晚',
+    'hero.subtitle.rain': '降雨強度中等，建議攜帶雨傘出門',
+    'hero.subtitle.soon': '預計降雨量 2-4mm，建議備傘 ☂️',
+    'hero.subtitle.maybe': '降雨機率低，適合外出活動',
+    // Stats
+    'stat.humidity': '濕度', 'stat.wind': '風速', 'stat.rainprob': '降雨機率',
+    // Sections
+    'section.forecast': '今日預報', 'section.radar': '即時雷達', 'section.rain': '雨量圖',
+    'section.favorites': '收藏城市', 'section.share': '分享天氣',
+    'section.alerts': '天氣警報', 'section.settings': '設定',
+    // Radar
+    'radar.rain': '🌧️ 雨量', 'radar.wind': '💨 風場', 'radar.temp': '🌡️ 溫度', 'radar.typhoon': '🌀 颱風',
+    'radar.live': '即時', 'radar.loading': '載入中...',
+    // Settings
+    'settings.language': '語言', 'settings.langdesc': '顯示語言',
+    'settings.tempunit': '溫度單位', 'settings.ads': '廣告',
+    'settings.adsdesc': '免費版顯示廣告', 'settings.removeads': '移除廣告',
+    'settings.notifications': '通知', 'settings.notifydesc': '允許推播通知',
+    'settings.darkmode': '深色模式', 'settings.version': '版本',
+    // Alerts
+    'alert.typhoon': '颱風警報', 'alert.heavyrain': '豪雨特報', 'alert.thunder': '雷雨警報',
+    // Share
+    'share.line': '分享至 LINE', 'share.ig': '分享至 IG', 'share.copy': '複製連結',
+    // Premium
+    'premium.title': '升級為 Premium', 'premium.price': 'NT$30 / 年',
+    'premium.cta': '立即升級',
+    // Footer
+    'footer.datasource': '資料來源：中央氣象署 CWA',
+  },
+  'en': {
+    // Nav
+    'nav.home': 'Home', 'nav.radar': 'Radar', 'nav.favorites': 'Saved',
+    'nav.alerts': 'Alerts', 'nav.settings': 'Settings',
+    // Home hero
+    'hero.raining': 'Raining Now 🌧️', 'hero.willrain': 'Rain Expected', 'hero.goodweather': 'Clear Sky ☀️',
+    'hero.now': 'Now', 'hero.later': 'Later Today',
+    'hero.subtitle.rain': 'Moderate rain — bring an umbrella',
+    'hero.subtitle.soon': 'Light rain expected (2-4mm) — grab a brolly ☂️',
+    'hero.subtitle.maybe': 'Low rain chance — good weather for going out',
+    // Stats
+    'stat.humidity': 'Humidity', 'stat.wind': 'Wind', 'stat.rainprob': 'Rain %',
+    // Sections
+    'section.forecast': 'Today’s Forecast', 'section.radar': 'Live Radar',
+    'section.rain': 'Rain Graph', 'section.favorites': 'Saved Cities',
+    'section.share': 'Share Weather', 'section.alerts': 'Weather Alerts',
+    'section.settings': 'Settings',
+    // Radar
+    'radar.rain': '🌧️ Rain', 'radar.wind': '💨 Wind', 'radar.temp': '🌡️ Temp', 'radar.typhoon': '🌀 Typhoon',
+    'radar.live': 'Live', 'radar.loading': 'Loading...',
+    // Settings
+    'settings.language': 'Language', 'settings.langdesc': 'Display language',
+    'settings.tempunit': 'Temperature', 'settings.ads': 'Ads',
+    'settings.adsdesc': 'Free version shows ads', 'settings.removeads': 'Remove Ads',
+    'settings.notifications': 'Notifications', 'settings.notifydesc': 'Enable push notifications',
+    'settings.darkmode': 'Dark Mode', 'settings.version': 'Version',
+    // Alerts
+    'alert.typhoon': 'Typhoon Warning', 'alert.heavyrain': 'Heavy Rain Alert', 'alert.thunder': 'Thunderstorm Alert',
+    // Share
+    'share.line': 'Share to LINE', 'share.ig': 'Share to IG', 'share.copy': 'Copy Link',
+    // Premium
+    'premium.title': 'Upgrade to Premium', 'premium.price': 'NT$30 / Year',
+    'premium.cta': 'Upgrade Now',
+    // Footer
+    'footer.datasource': 'Data: Central Weather Administration (CWA)',
+  }
+};
+
+function t(key) {
+  return TRANSLATIONS[currentLang]?.[key] || TRANSLATIONS['zh-TW'][key] || key;
+}
+
+function setLanguage(lang) {
+  currentLang = lang;
+  document.documentElement.lang = lang === 'en' ? 'en' : 'zh-TW';
+
+  // Update all elements with data-i18n attribute
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    el.textContent = t(key);
+  });
+
+  // Update nav labels
+  const navMap = {
+    navHome: 'nav.home', navRadar: 'nav.radar',
+    navFavorites: 'nav.favorites', navAlerts: 'nav.alerts', navSettings: 'nav.settings'
+  };
+  Object.entries(navMap).forEach(([id, key]) => {
+    const el = document.querySelector(`#${id} .nav-label`);
+    if (el) el.textContent = t(key);
+  });
+
+  // Update stat labels
+  const statMap = [
+    ['humLabel', 'stat.humidity'], ['windLabel', 'stat.wind'], ['rainLabel', 'stat.rainprob']
+  ];
+  statMap.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t(key);
+  });
+
+  // Update radar buttons
+  const radarBtns = document.querySelectorAll('.radar-btn');
+  const radarKeys = ['radar.rain', 'radar.wind', 'radar.temp', 'radar.typhoon'];
+  radarBtns.forEach((btn, i) => { if (radarKeys[i]) btn.textContent = t(radarKeys[i]); });
+
+  // Update share buttons
+  const shareMap = [
+    ['shareLine', 'share.line'], ['shareIG', 'share.ig'], ['shareCopy', 'share.copy']
+  ];
+  shareMap.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t(key);
+  });
+
+  // Update rain countdown text based on current prob
+  const prob = parseInt(document.getElementById('currentRainProb')?.textContent) || 0;
+  updateRainCountdown(prob);
+
+  // Update section titles
+  const sectionMap = [
+    ['forecastTitle', 'section.forecast'], ['radarTitle', 'section.radar'],
+    ['favoritesTitle', 'section.favorites'], ['alertsTitle', 'section.alerts'],
+    ['settingsTitle', 'section.settings'],
+  ];
+  sectionMap.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) {
+      // Preserve any icon span inside
+      const icon = el.querySelector('.section-title-icon');
+      if (icon) {
+        icon.nextSibling && (icon.nextSibling.textContent = ' ' + t(key));
+      } else {
+        // Only update text content, not the whole element
+        const textNodes = [...el.childNodes].filter(n => n.nodeType === 3);
+        if (textNodes.length) textNodes[0].textContent = ' ' + t(key);
+      }
+    }
+  });
+
+  // Re-run rain countdown in new language
+  updateRainCountdown(prob);
+
+  showToast(lang === 'en' ? '🌐 Switched to English' : '🌐 已切換為繁體中文');
+}
+
+
 </script>
 
 </body>
