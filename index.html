@@ -24,8 +24,19 @@
   <meta property="og:title" content="台灣雨 TaiwanRain — 即時雨量預報">
   <meta property="og:description" content="幾分鐘後下雨？台灣最可愛的氣象 App！">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="https://taiwanrain.app/og.png">
-  <meta name="theme-color" content="#7ecae8">
+  <meta property="og:image" content="https://taiwanrain.app/screenshot-mobile.jpg">
+  <meta property="og:url" content="https://taiwanrain.app">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="台灣雨 TaiwanRain">
+  <meta name="twitter:description" content="幾分鐘後下雨？台灣最可愛的即時雨量預報！">
+  <meta name="twitter:image" content="https://taiwanrain.app/screenshot-mobile.jpg">
+  <meta name="theme-color" content="#4db8e8">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="台灣雨">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon-192.png">
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1384,6 +1395,15 @@ const WEATHER_CODE_MAP = {
 let hourlyData = [];
 let radarMap = null;
 let radarLayer = null;
+
+// ---- SERVICE WORKER ----
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.warn('SW failed:', err));
+  });
+}
 
 // ---- INIT ----
 document.addEventListener('DOMContentLoaded', () => {
